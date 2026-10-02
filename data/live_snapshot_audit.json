@@ -4,8 +4,8 @@
   "price_date_used": "2026-10-01",
   "current_members": 504,
   "live_rows_created": 493,
-  "rows_with_sec_overlay": 0,
-  "rows_carry_forward_only": 493,
+  "rows_with_sec_overlay": 491,
+  "rows_carry_forward_only": 2,
   "unscored_no_history": [
     "BE",
     "FDXF",
@@ -23,5 +23,12 @@
     "BK",
     "SATS"
   ],
-  "feature_update_counts": {}
+  "feature_update_counts": {
+    "EPS": 485,
+    "asset_turnover": 478,
+    "debt_ratio": 363,
+    "debt_to_assets": 363,
+    "debt_to_equity": 358,
+    "roe": 478
+  }
 }

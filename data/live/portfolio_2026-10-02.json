@@ -1,44 +1,46 @@
 {
   "as_of": "2026-10-02",
-  "prediction_file": "data/live/sp500_ml_mixed_alpha_20261002_20261002_100035.csv",
+  "prediction_file": "data/live/sp500_ml_mixed_alpha_20261002_20261002_101122.csv",
   "portfolio_file": "data/live/portfolio_2026-10-02.csv",
   "holdings": 12,
   "per_bucket": 3,
   "weighting": "equal",
+  "eligibility_rule": "trade_price must be non-null and > 0",
+  "eligible_ranked_stocks": 492,
   "tickers": [
-    "TDG",
-    "CARR",
-    "OTIS",
-    "AES",
-    "MCK",
-    "PCG",
-    "WDAY",
-    "DDOG",
-    "SATS",
-    "DD",
-    "DOW",
-    "LYB"
+    "KKR",
+    "SCHW",
+    "TROW",
+    "CNC",
+    "BAX",
+    "DVA",
+    "DELL",
+    "LRCX",
+    "ZBRA",
+    "HST",
+    "MOS",
+    "BXP"
   ],
   "buckets": {
     "cyclical": [
-      "TDG",
-      "CARR",
-      "OTIS"
+      "KKR",
+      "SCHW",
+      "TROW"
     ],
     "defensive": [
-      "AES",
-      "MCK",
-      "PCG"
+      "CNC",
+      "BAX",
+      "DVA"
     ],
     "growth_tech": [
-      "WDAY",
-      "DDOG",
-      "SATS"
+      "DELL",
+      "LRCX",
+      "ZBRA"
     ],
     "real_assets": [
-      "DD",
-      "DOW",
-      "LYB"
+      "HST",
+      "MOS",
+      "BXP"
     ]
   }
 }
