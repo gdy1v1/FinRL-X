@@ -241,6 +241,9 @@ def recompute_returns(conn: sqlite3.Connection, as_of: pd.Timestamp) -> int:
     df.loc[realized, "new_y"] = np.log(
         df.loc[realized, "next_trade_price"] / df.loc[realized, "trade_price"]
     )
+    # Official FinRL-X quality rule: exact zero-return pairs are treated as
+    # suspect frozen-price observations and must not become training labels.
+    df.loc[df["new_y"].abs() < 1e-12, "new_y"] = np.nan
 
     vals = []
     for r in df.itertuples(index=False):
