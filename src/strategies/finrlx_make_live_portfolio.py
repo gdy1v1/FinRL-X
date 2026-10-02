@@ -34,13 +34,24 @@ def main():
         df = df[df["datadate"] == "mixed"].copy()
 
     rank_col = "rank_mixed" if "rank_mixed" in df.columns else "rank_best"
+
+    # Execution gate: a stock cannot enter a "buy today" portfolio without a
+    # verified positive reference price from the latest completed session.
+    df["trade_price"] = pd.to_numeric(df.get("trade_price"), errors="coerce")
+    eligible = df[df["trade_price"].notna() & (df["trade_price"] > 0)].copy()
+
     picks = []
+    short_buckets = {}
     for bucket in BUCKETS:
-        b = df[df["bucket"] == bucket].sort_values(rank_col).head(args.per_bucket).copy()
+        b = eligible[eligible["bucket"] == bucket].sort_values(rank_col).head(args.per_bucket).copy()
+        if len(b) < args.per_bucket:
+            short_buckets[bucket] = len(b)
         picks.append(b)
     out = pd.concat(picks, ignore_index=True)
     if out.empty:
-        raise RuntimeError("No portfolio candidates generated")
+        raise RuntimeError("No executable portfolio candidates generated")
+    if short_buckets:
+        raise RuntimeError(f"Insufficient priced candidates by bucket: {short_buckets}")
 
     out["weight"] = 1.0 / len(out)
     out["weight_pct"] = out["weight"] * 100
@@ -66,6 +77,8 @@ def main():
         "holdings": len(out),
         "per_bucket": args.per_bucket,
         "weighting": "equal",
+        "eligibility_rule": "trade_price must be non-null and > 0",
+        "eligible_ranked_stocks": int(len(eligible)),
         "tickers": out["tic"].tolist(),
         "buckets": out.groupby("bucket")["tic"].apply(list).to_dict(),
     }
