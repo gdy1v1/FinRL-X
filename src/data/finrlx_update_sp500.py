@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extend FinRL-X S&P 500 point-in-time constituent snapshots through 2026-09-27.
+"""Extend FinRL-X S&P 500 point-in-time constituent snapshots through the requested as-of date.
 
 The official dataset currently ends at 2026-04-17.  This script applies
 S&P Dow Jones Indices announced changes and emits NYSE-session snapshots.
@@ -13,6 +13,7 @@ Source announcements:
 - 2026-07-31 FERG replaces EA effective 2026-08-05
 - 2026-08-13 RDDT replaces AVB effective 2026-08-18; EQR renamed VMRK
 - 2026-09-04 BE/P/ILMN replace TAP/TTD/BLDR effective 2026-09-21
+- 2026-10-01 VYLR added after the Corteva spin-off; CTVA remains until 2026-10-06
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from pathlib import Path
 import pandas as pd
 import pandas_market_calendars as mcal
 
-TARGET_DATE = pd.Timestamp("2026-09-27")
+TARGET_DATE = pd.Timestamp("2026-10-02")
 
 # (effective date, additions, deletions, renames)
 CHANGES = [
@@ -37,6 +38,10 @@ CHANGES = [
     ("2026-08-05", ["FERG"], ["EA"], {}),
     ("2026-08-18", ["RDDT"], ["AVB"], {"EQR": "VMRK"}),
     ("2026-09-21", ["BE", "P", "ILMN"], ["TAP", "TTD", "BLDR"], {}),
+    # S&P Global's Oct. 1 table lists VYLR as an addition on Oct. 1 and
+    # CTVA's deletion on Oct. 6, so Oct. 1-5 legitimately has one extra constituent.
+    ("2026-10-01", ["VYLR"], [], {}),
+    ("2026-10-06", ["TWLO"], ["CTVA", "WBD"], {}),
 ]
 
 
