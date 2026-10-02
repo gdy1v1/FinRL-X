@@ -65,36 +65,62 @@ def find_main_db(workdir: Path) -> Path:
     return good[0]
 
 
-def get_price_on_or_after(ticker: str, filed: pd.Timestamp) -> tuple[str | None, float | None]:
-    if pd.isna(filed):
-        return None, None
-    yf_ticker = ticker.replace(".", "-")
-    start = filed.strftime("%Y-%m-%d")
-    end = (filed + pd.Timedelta(days=8)).strftime("%Y-%m-%d")
+def batch_prices_on_or_after(sec: pd.DataFrame) -> dict[str, tuple[str, float]]:
+    """Download one price panel and match first close on/after each filing date."""
+    if sec.empty:
+        return {}
+
+    ticker_to_yf = {str(t): str(t).replace(".", "-") for t in sec["ticker"].astype(str)}
+    start = (sec["latest_filed"].min() - pd.Timedelta(days=2)).strftime("%Y-%m-%d")
+    end = (sec["latest_filed"].max() + pd.Timedelta(days=10)).strftime("%Y-%m-%d")
+
     try:
         px = yf.download(
-            yf_ticker,
+            sorted(set(ticker_to_yf.values())),
             start=start,
             end=end,
             auto_adjust=True,
             progress=False,
-            threads=False,
+            group_by="column",
+            threads=True,
         )
-        if px.empty:
-            return None, None
-        close = px["Close"]
-        if isinstance(close, pd.DataFrame):
-            close = close.iloc[:, 0]
-        close = close.dropna()
-        if close.empty:
-            return None, None
-        dt = pd.Timestamp(close.index[0]).tz_localize(None)
-        price = float(close.iloc[0])
+    except Exception as e:
+        print(f"WARNING: batch price download failed: {e}")
+        return {}
+
+    if px.empty:
+        return {}
+
+    if isinstance(px.columns, pd.MultiIndex):
+        try:
+            close = px["Close"]
+        except KeyError:
+            return {}
+    else:
+        close = px[["Close"]].copy()
+        only = next(iter(ticker_to_yf.values()))
+        close.columns = [only]
+
+    close.index = pd.to_datetime(close.index).tz_localize(None)
+    result = {}
+
+    for r in sec[["ticker", "latest_filed"]].itertuples(index=False):
+        ticker = str(r.ticker)
+        key = ticker_to_yf[ticker]
+        if key not in close.columns:
+            continue
+        s = pd.to_numeric(close[key], errors="coerce").dropna()
+        filed = pd.Timestamp(r.latest_filed)
+        s = s[(s.index >= filed) & (s.index <= filed + pd.Timedelta(days=7))]
+        if s.empty:
+            continue
+        price = float(s.iloc[0])
         if not math.isfinite(price) or price <= 0:
-            return None, None
-        return dt.strftime("%Y-%m-%d"), price
-    except Exception:
-        return None, None
+            continue
+        result[ticker] = (pd.Timestamp(s.index[0]).strftime("%Y-%m-%d"), price)
+
+    print(f"Matched filing-date reference prices for {len(result)}/{len(sec)} SEC rows")
+    return result
 
 
 def derive_overlay(secrow: pd.Series, price: float | None, row_columns: set[str]) -> dict:
@@ -234,6 +260,8 @@ def main():
         & (sec["latest_filed"] <= as_of)
     ].copy()
 
+    price_map = batch_prices_on_or_after(sec)
+
     with tempfile.TemporaryDirectory(prefix="finrlx_main_update_") as td:
         workdir = Path(td)
         with py7zr.SevenZipFile(archive, "r") as z:
@@ -282,7 +310,7 @@ def main():
                 skipped_not_newer += 1
                 continue
 
-            actual_trade_date, trade_price = get_price_on_or_after(ticker, filed)
+            actual_trade_date, trade_price = price_map.get(ticker, (None, None))
             if trade_price is None:
                 skipped_no_price.append(ticker)
 
