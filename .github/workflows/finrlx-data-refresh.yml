@@ -73,3 +73,5 @@ jobs:
             git commit -m "data: refresh FinRL-X datasets through 2026-09-27"
             git push origin master
           fi
+
+# trigger refresh
