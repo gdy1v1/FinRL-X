@@ -68,7 +68,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/sp500_historical_constituents.csv                   data/fundamental_data_full.csv                   data/finrl_trading.7z                   data/sec_companyfacts_latest.csv                   data/FINRLX_DATA_AUDIT.md                   data/finrlx_data_audit.json
+          git add data/sp500_historical_constituents.csv data/fundamental_data_full.csv data/finrl_trading.7z
+          git add -f data/sec_companyfacts_latest.csv data/FINRLX_DATA_AUDIT.md data/finrlx_data_audit.json
           if git diff --cached --quiet; then
             echo "No data changes."
           else
