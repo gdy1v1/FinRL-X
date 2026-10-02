@@ -1,0 +1,138 @@
+name: FinRL-X daily OHLCV cache
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/finrlx-daily-prices.yml"
+      - "src/data/finrlx_refresh_daily_prices.py"
+
+concurrency:
+  group: finrlx-daily-prices
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-daily-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas yfinance pyyaml pandas-market-calendars
+
+      - name: Resolve latest completed NYSE session
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          import pandas_market_calendars as mcal
+
+          now = pd.Timestamp.now(tz="UTC")
+          nyse = mcal.get_calendar("NYSE")
+          schedule = nyse.schedule(
+              start_date=(now - pd.Timedelta(days=14)).date(),
+              end_date=(now + pd.Timedelta(days=1)).date(),
+          )
+          completed = schedule[schedule["market_close"] <= now]
+          if completed.empty:
+              raise SystemExit("No completed NYSE session found")
+          cutoff = completed.index[-1].strftime("%Y-%m-%d")
+          print("Latest completed NYSE session:", cutoff)
+          with open("/tmp/price_cutoff", "w", encoding="utf-8") as f:
+              f.write(cutoff)
+          PY
+          echo "PRICE_CUTOFF=$(cat /tmp/price_cutoff)" >> "$GITHUB_ENV"
+
+      - name: Restore existing persistent cache
+        run: |
+          mkdir -p data
+          shopt -s nullglob
+          parts=(data/fmp_daily_part*.tar.gz)
+          if [ ${#parts[@]} -gt 0 ]; then
+            echo "Restoring ${#parts[@]} daily-cache shards"
+            for archive in "${parts[@]}"; do
+              tar -xzf "$archive" -C data
+            done
+          elif [ -f data/fmp_daily.tar.gz ]; then
+            tar -xzf data/fmp_daily.tar.gz -C data
+          fi
+          shopt -u nullglob
+
+      - name: Refresh full point-in-time S&P 500 daily OHLCV universe
+        run: |
+          python src/data/finrlx_refresh_daily_prices.py             --constituents data/sp500_historical_constituents.csv             --config src/strategies/AdaptiveRotationConf_v1.2.1.yaml             --output-dir data/fmp_daily             --start 2015-01-01             --end "$PRICE_CUTOFF"             --audit data/daily_price_audit.json
+
+      - name: Validate daily cache
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          audit = json.load(open("data/daily_price_audit.json", encoding="utf-8"))
+          assert audit["current_member_count"] >= 500, audit
+          assert audit["current_fresh_count"] >= 480, audit
+          assert audit["files_written"] >= 500, audit
+          assert audit["global_max_date"] == audit["price_cutoff"], audit
+
+          files = list(Path("data/fmp_daily").glob("*_daily.csv"))
+          assert len(files) == audit["files_written"], (len(files), audit["files_written"])
+          print(json.dumps(audit, indent=2))
+          PY
+
+      - name: Package daily cache into GitHub-safe shards
+        run: |
+          rm -f data/fmp_daily_part*.tar.gz
+          python - <<'PY'
+          from pathlib import Path
+          import tarfile
+
+          source = Path("data/fmp_daily")
+          files = sorted(source.glob("*_daily.csv"))
+          if not files:
+              raise SystemExit("No daily CSV files to package")
+
+          shard_count = 4
+          shards = [[] for _ in range(shard_count)]
+          for i, path in enumerate(files):
+              shards[i % shard_count].append(path)
+
+          for idx, members in enumerate(shards, 1):
+              out = Path(f"data/fmp_daily_part{idx}.tar.gz")
+              with tarfile.open(out, "w:gz", compresslevel=6) as tf:
+                  for path in members:
+                      tf.add(path, arcname=f"fmp_daily/{path.name}")
+              mb = out.stat().st_size / (1024 * 1024)
+              print(f"{out}: {len(members)} files, {mb:.1f} MiB")
+              if mb >= 95:
+                  raise SystemExit(f"{out} is too large for safe GitHub storage: {mb:.1f} MiB")
+          PY
+
+      - name: Commit persistent daily cache and audit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -f data/fmp_daily_part*.tar.gz data/daily_price_audit.json
+
+          if git diff --cached --quiet; then
+            echo "No daily-price changes."
+          else
+            git commit -m "data: persist FinRL-X daily OHLCV cache through $PRICE_CUTOFF"
+            git pull --rebase origin master
+            git push origin master
+          fi
