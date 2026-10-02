@@ -166,9 +166,29 @@ def main():
             print(f"SEC Company Facts: {i}/{len(tickers)}")
 
     out = pd.DataFrame(rows)
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(args.output, index=False)
-    print(f"Wrote {len(out)} rows to {args.output} (as-of {args.as_of})")
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Never destroy a previously valid snapshot just because SEC blocks a CI
+    # runner.  Require broad successful coverage before replacing the cache.
+    if "error" in out.columns:
+        success_count = int(out["error"].isna().sum())
+    else:
+        success_count = len(out)
+    min_success = min(400, max(1, int(len(tickers) * 0.75)))
+
+    if success_count < min_success and out_path.exists():
+        print(
+            f"WARNING: only {success_count}/{len(tickers)} SEC rows succeeded; "
+            f"preserving existing valid snapshot at {out_path}"
+        )
+        return
+
+    out.to_csv(out_path, index=False)
+    print(
+        f"Wrote {len(out)} rows to {out_path} (as-of {args.as_of}); "
+        f"successful rows={success_count}"
+    )
 
 
 if __name__ == "__main__":
