@@ -530,9 +530,13 @@ def main():
             univ = fetch_nasdaq100_tickers()
             univ_tickers = set(univ["tickers"].tolist())
         elif args.universe.lower() == "sp500":
-            from data.data_fetcher import fetch_sp500_tickers
-            univ = fetch_sp500_tickers()
-            univ_tickers = set(univ["tickers"].tolist())
+            # Live/current runs must use the repository's point-in-time history,
+            # not a remote constituent endpoint that may require FMP or drift.
+            hist_path = os.path.join(project_root, "data", "sp500_historical_constituents.csv")
+            hist_now = pd.read_csv(hist_path)
+            hist_now["date"] = pd.to_datetime(hist_now["date"])
+            last = hist_now.sort_values("date").iloc[-1]
+            univ_tickers = {t.strip() for t in str(last["tickers"]).split(",") if t.strip()}
         elif os.path.exists(args.universe):
             univ_tickers = set(pd.read_csv(args.universe)["tickers"].tolist())
         else:
@@ -787,15 +791,13 @@ def main():
         infer_part = infer_part.sort_values(["tic", "datadate"]).drop_duplicates(subset="tic", keep="last")
 
         # Tag vintage for output
-        infer_part["data_vintage"] = infer_part["datadate"].apply(
-            lambda d: "Q1_2026" if d >= "2026-03-01" else "Q4_2025"
-        )
+        infer_part["data_vintage"] = infer_part["datadate"]
+        vintage_counts = infer_part["data_vintage"].value_counts().sort_index()
 
-        n_q1 = (infer_part["data_vintage"] == "Q1_2026").sum()
-        n_q4 = (infer_part["data_vintage"] == "Q4_2025").sum()
         print(f"\nMixed-vintage mode: {len(infer_part)} current {universe_name.upper()} tickers for inference")
-        print(f"  Q1 2026 (early reporters): {n_q1}")
-        print(f"  Q4 2025 (not yet reported): {n_q4}")
+        print("  Source-period mix:")
+        for vintage, count in vintage_counts.items():
+            print(f"    {vintage}: {count}")
 
         # Set all inference records to a common synthetic datadate so they rank together
         infer_part["original_datadate"] = infer_part["datadate"]
