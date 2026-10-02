@@ -1,5 +1,5 @@
 name: FinRL-X data refresh
-# batch-price refresh
+# persistent-SEC refresh
 
 on:
   workflow_dispatch:
@@ -80,7 +80,8 @@ jobs:
             --csv-out data/fundamental_data_full.csv \
             --audit-md data/FINRLX_DATA_AUDIT.md \
             --audit-json data/finrlx_data_audit.json \
-            --as-of "$AS_OF"
+            --as-of "$AS_OF" \
+            --skip-price-fetch
 
       - name: Validate persistent database update
         run: |
