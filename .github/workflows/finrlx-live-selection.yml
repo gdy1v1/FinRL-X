@@ -7,6 +7,9 @@ on:
     branches: [master]
     paths:
       - ".github/workflows/finrlx-live-selection.yml"
+      - "src/data/finrlx_sec_fundamentals.py"
+      - "src/data/finrlx_build_live_snapshot.py"
+      - "src/strategies/finrlx_make_live_portfolio.py"
 
 permissions:
   contents: write
@@ -105,6 +108,8 @@ jobs:
           p=pd.read_csv("data/live/portfolio_2026-10-02.csv")
           assert len(p) == 12
           assert p["tic"].nunique() == 12
+          assert p["trade_price"].notna().all()
+          assert (p["trade_price"] > 0).all()
           assert abs(p["weight"].sum() - 1.0) < 1e-6
           print(json.dumps(audit, indent=2))
           print(p.to_string(index=False))
