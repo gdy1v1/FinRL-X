@@ -135,6 +135,8 @@ logs/
 *.db
 *.sqlite
 !/data/finrl_trading.7z
+!/data/fmp_daily.tar.gz
+!/data/daily_price_audit.json
 .cache/
 temp/
 tmp/
