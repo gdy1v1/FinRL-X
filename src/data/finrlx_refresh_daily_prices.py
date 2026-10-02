@@ -20,6 +20,7 @@ silently fabricated.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import math
 import time
@@ -207,10 +208,9 @@ def main() -> None:
     print(f"Current S&P 500 members: {len(current_members)}")
     print(f"Requested range: {requested_start.date()} -> {cutoff.date()}")
 
-    for idx, symbol in enumerate(symbols, 1):
+    def process_symbol(symbol: str) -> tuple[str, dict[str, object] | None, str | None]:
         path = output_dir / f"{symbol}_daily.csv"
         fetch_start = existing_refresh_start(path, requested_start)
-
         try:
             fresh = download_symbol(symbol, fetch_start, end_exclusive, retries=args.retries)
             if fresh.empty:
@@ -227,16 +227,33 @@ def main() -> None:
                 combined = merge_existing(path, fresh)
 
             combined.to_csv(path, index=False)
-            succeeded.append(symbol)
-            ranges[symbol] = {
+            info = {
                 "rows": int(len(combined)),
                 "min_date": str(combined["date"].min()),
                 "max_date": str(combined["date"].max()),
             }
-            print(f"[{idx:03d}/{len(symbols)}] OK   {symbol:8s} {len(combined):5d} rows through {combined['date'].max()}")
+            return symbol, info, None
         except Exception as exc:  # noqa: BLE001
-            failed[symbol] = str(exc)
-            print(f"[{idx:03d}/{len(symbols)}] FAIL {symbol:8s} {exc}")
+            return symbol, None, str(exc)
+
+    completed = 0
+    # Moderate concurrency is much faster for a 700+ symbol historical universe,
+    # while staying conservative enough to avoid hammering Yahoo.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(process_symbol, symbol): symbol for symbol in symbols}
+        for future in concurrent.futures.as_completed(futures):
+            completed += 1
+            symbol, info, error = future.result()
+            if info is not None:
+                succeeded.append(symbol)
+                ranges[symbol] = info
+                print(
+                    f"[{completed:03d}/{len(symbols)}] OK   {symbol:8s} "
+                    f"{int(info['rows']):5d} rows through {info['max_date']}"
+                )
+            else:
+                failed[symbol] = error or "unknown error"
+                print(f"[{completed:03d}/{len(symbols)}] FAIL {symbol:8s} {failed[symbol]}")
 
     fresh_current = []
     stale_current = []
