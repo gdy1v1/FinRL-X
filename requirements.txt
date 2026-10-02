@@ -36,6 +36,7 @@ pydantic-settings>=2.1.0
 
 # Database and storage
 sqlalchemy>=2.0.0
+py7zr>=0.22.0
 
 # Utilities
 pathlib>=1.0.1
