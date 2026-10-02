@@ -129,7 +129,7 @@ def main():
             no_history.append(ticker)
             continue
         row = base.iloc[0].to_dict()
-        base_date = pd.Timestamp(str(row.get("datadate"))[:10], errors="coerce")
+        base_date = pd.to_datetime(str(row.get("datadate"))[:10], errors="coerce")
 
         secrow = sec_by.loc[ticker] if ticker in sec_by.index else None
         sec_end = pd.NaT
@@ -266,7 +266,7 @@ def main():
         values = []
         for col in insert_cols:
             v = row.get(col)
-            if pd.isna(v) if not isinstance(v, (list, dict)) else False:
+            if not isinstance(v, (list, dict)) and pd.isna(v):
                 v = None
             values.append(v)
         conn.execute(sql, values)
