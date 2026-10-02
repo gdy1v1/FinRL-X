@@ -43,12 +43,20 @@ jobs:
         run: |
           python src/data/finrlx_update_sp500.py --target-date "$AS_OF"
 
-      - name: Refresh SEC Company Facts when provider permits
+      - name: Validate cached SEC Company Facts snapshot
         run: |
-          python src/data/finrlx_sec_fundamentals.py \
-            --constituents data/sp500_historical_constituents.csv \
-            --output data/sec_companyfacts_latest.csv \
-            --as-of "$AS_OF"
+          python - <<'PY'
+          import pandas as pd
+          p = "data/sec_companyfacts_latest.csv"
+          df = pd.read_csv(p)
+          required = {"ticker", "latest_fact_end", "latest_filed"}
+          assert required.issubset(df.columns), list(df.columns)
+          assert len(df) >= 450, len(df)
+          assert df["latest_fact_end"].notna().sum() >= 400
+          print(f"Using cached SEC snapshot: {len(df)} rows")
+          print("latest_fact_end:", df["latest_fact_end"].max())
+          print("latest_filed:", df["latest_filed"].max())
+          PY
 
       - name: Merge latest SEC periods into persistent main database
         run: |
