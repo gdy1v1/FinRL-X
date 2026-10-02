@@ -1,4 +1,5 @@
 name: FinRL-X data refresh
+# batch-price refresh
 
 on:
   workflow_dispatch:
