@@ -330,6 +330,7 @@ def main() -> None:
     ap.add_argument("--audit-md", default="data/FINRLX_DATA_AUDIT.md")
     ap.add_argument("--audit-json", default="data/finrlx_data_audit.json")
     ap.add_argument("--as-of", default="2026-09-27")
+    ap.add_argument("--skip-price-fetch", action="store_true")
     args = ap.parse_args()
 
     archive = Path(args.archive)
@@ -342,7 +343,10 @@ def main() -> None:
         seeded_rows = ensure_fundamental_table(conn, Path(args.csv_out))
         ensure_columns(conn)
         date_updates = fill_dates(conn)
-        price_updates, unresolved = download_missing_prices(conn, as_of)
+        if args.skip_price_fetch:
+            price_updates, unresolved = 0, []
+        else:
+            price_updates, unresolved = download_missing_prices(conn, as_of)
         recomputed = recompute_returns(conn, as_of)
         report = audit(conn, as_of, unresolved)
         report["seeded_rows_from_csv"] = seeded_rows
