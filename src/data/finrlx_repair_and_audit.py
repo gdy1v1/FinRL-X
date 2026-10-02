@@ -67,11 +67,16 @@ def extract_archive(archive: Path, workdir: Path) -> Path:
             continue
 
     if not candidates:
-        listing = ", ".join(str(p.relative_to(workdir)) for p in dbs)
-        raise RuntimeError(
-            "No SQLite database containing fundamental_data found in archive. "
-            f"Database files found: {listing}"
+        # The official archive currently contains a SQLite shell without the
+        # fundamental_data table while data/fundamental_data_full.csv carries
+        # the actual dataset.  Return the primary DB and seed it from CSV in
+        # main() instead of treating the archive as corrupt.
+        dbs.sort(key=lambda p: p.stat().st_size, reverse=True)
+        print(
+            "No fundamental_data table inside archive DB; "
+            f"will seed {dbs[0].relative_to(workdir)} from CSV."
         )
+        return dbs[0]
 
     candidates.sort(key=lambda p: p.stat().st_size, reverse=True)
     print(f"Using SQLite database: {candidates[0].relative_to(workdir)}")
@@ -87,6 +92,32 @@ def repack_archive(workdir: Path, archive: Path) -> None:
             if p.is_file():
                 z.write(p, arcname=str(p.relative_to(workdir)))
     tmp.replace(archive)
+
+
+def ensure_fundamental_table(conn: sqlite3.Connection, csv_path: Path) -> int:
+    hit = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='fundamental_data'"
+    ).fetchone()
+    if hit:
+        return 0
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            f"Archive DB lacks fundamental_data and seed CSV is missing: {csv_path}"
+        )
+    df = pd.read_csv(csv_path)
+    required = {"ticker", "datadate"}
+    if not required.issubset(df.columns):
+        raise ValueError(
+            f"Seed CSV must contain {sorted(required)}; got {list(df.columns)}"
+        )
+    df.to_sql("fundamental_data", conn, if_exists="replace", index=False)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_fundamental_ticker_date "
+        "ON fundamental_data(ticker, datadate)"
+    )
+    conn.commit()
+    print(f"Seeded fundamental_data from {csv_path} with {len(df)} rows")
+    return len(df)
 
 
 def ensure_columns(conn: sqlite3.Connection) -> None:
@@ -305,11 +336,13 @@ def main() -> None:
         workdir = Path(td)
         db = extract_archive(archive, workdir)
         conn = sqlite3.connect(db)
+        seeded_rows = ensure_fundamental_table(conn, Path(args.csv_out))
         ensure_columns(conn)
         date_updates = fill_dates(conn)
         price_updates, unresolved = download_missing_prices(conn, as_of)
         recomputed = recompute_returns(conn, as_of)
         report = audit(conn, as_of, unresolved)
+        report["seeded_rows_from_csv"] = seeded_rows
         report["date_updates"] = date_updates
         report["price_updates"] = price_updates
         report["y_return_rows_recomputed"] = recomputed
