@@ -49,9 +49,33 @@ def extract_archive(archive: Path, workdir: Path) -> Path:
     dbs = list(workdir.rglob("*.db"))
     if not dbs:
         raise FileNotFoundError("No SQLite .db found inside archive")
-    if len(dbs) > 1:
-        dbs.sort(key=lambda p: p.stat().st_size, reverse=True)
-    return dbs[0]
+
+    # The archive may contain more than one SQLite database.  Select the one
+    # that actually owns the FinRL fundamental_data table instead of guessing
+    # by file size.
+    candidates = []
+    for db in dbs:
+        try:
+            conn = sqlite3.connect(db)
+            hit = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='fundamental_data'"
+            ).fetchone()
+            conn.close()
+            if hit:
+                candidates.append(db)
+        except sqlite3.DatabaseError:
+            continue
+
+    if not candidates:
+        listing = ", ".join(str(p.relative_to(workdir)) for p in dbs)
+        raise RuntimeError(
+            "No SQLite database containing fundamental_data found in archive. "
+            f"Database files found: {listing}"
+        )
+
+    candidates.sort(key=lambda p: p.stat().st_size, reverse=True)
+    print(f"Using SQLite database: {candidates[0].relative_to(workdir)}")
+    return candidates[0]
 
 
 def repack_archive(workdir: Path, archive: Path) -> None:
