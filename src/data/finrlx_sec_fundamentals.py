@@ -104,12 +104,33 @@ def main():
         ),
         "Accept-Encoding": "gzip, deflate",
     })
-    mapping = s.get("https://www.sec.gov/files/company_tickers.json", timeout=30)
-    mapping.raise_for_status()
-    ticker_map = {
-        str(v["ticker"]).upper(): str(v["cik_str"]).zfill(10)
-        for v in mapping.json().values()
-    }
+
+    # Prefer the persisted ticker→CIK mapping from the previous successful
+    # snapshot. GitHub-hosted runners are sometimes blocked by www.sec.gov/files
+    # even when data.sec.gov APIs remain available.
+    ticker_map = {}
+    out_path = Path(args.output)
+    if out_path.exists():
+        try:
+            prev = pd.read_csv(out_path, usecols=lambda x: x in {"ticker", "cik"})
+            for r in prev.dropna(subset=["ticker", "cik"]).itertuples(index=False):
+                cik = str(r.cik).split(".")[0].zfill(10)
+                ticker_map[str(r.ticker).upper()] = cik
+            print(f"Loaded {len(ticker_map)} cached ticker→CIK mappings from {out_path}")
+        except Exception as e:
+            print(f"WARNING: could not read cached CIK mapping: {e}")
+
+    try:
+        mapping = s.get("https://www.sec.gov/files/company_tickers.json", timeout=30)
+        mapping.raise_for_status()
+        fresh_map = {
+            str(v["ticker"]).upper(): str(v["cik_str"]).zfill(10)
+            for v in mapping.json().values()
+        }
+        ticker_map.update(fresh_map)
+        print(f"Refreshed ticker→CIK mapping from SEC ({len(fresh_map)} entries)")
+    except Exception as e:
+        print(f"WARNING: SEC ticker mapping unavailable; using cache only: {e}")
 
     rows = []
     for i, ticker in enumerate(tickers, 1):
