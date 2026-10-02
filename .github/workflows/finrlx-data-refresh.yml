@@ -7,16 +7,22 @@ on:
     paths:
       - ".github/workflows/finrlx-data-refresh.yml"
 
+concurrency:
+  group: finrlx-data-refresh
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
+      AS_OF: "2026-10-02"
       SEC_USER_AGENT: FinRL-X research https://github.com/gdy1v1/FinRL-X
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,7 +33,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
 
       - name: Install data refresh dependencies
         run: |
@@ -36,14 +41,14 @@ jobs:
 
       - name: Extend point-in-time S&P 500 history
         run: |
-          python src/data/finrlx_update_sp500.py --target-date 2026-10-02
+          python src/data/finrlx_update_sp500.py --target-date "$AS_OF"
 
-      - name: Fetch SEC Company Facts supplement
+      - name: Refresh SEC Company Facts when provider permits
         run: |
           python src/data/finrlx_sec_fundamentals.py \
-  --constituents data/sp500_historical_constituents.csv \
-  --output data/sec_companyfacts_latest.csv \
-  --as-of 2026-10-02
+            --constituents data/sp500_historical_constituents.csv \
+            --output data/sec_companyfacts_latest.csv \
+            --as-of "$AS_OF"
 
       - name: Merge latest SEC periods into persistent main database
         run: |
@@ -52,44 +57,59 @@ jobs:
             --sec data/sec_companyfacts_latest.csv \
             --csv-out data/fundamental_data_full.csv \
             --audit data/main_db_update_audit.json \
-            --as-of 2026-10-02
+            --as-of "$AS_OF"
 
       - name: Optional FMP historical backfill
         if: ${{ env.FMP_API_KEY != '' }}
         run: |
           python src/data/backfill_historical_sp500.py
 
-      - name: Repair recoverable prices and recompute y_return
+      - name: Repair prices and recompute y_return
         run: |
-          python src/data/finrlx_repair_and_audit.py --as-of 2026-10-02
+          python src/data/finrlx_repair_and_audit.py \
+            --archive data/finrl_trading.7z \
+            --csv-out data/fundamental_data_full.csv \
+            --audit-md data/FINRLX_DATA_AUDIT.md \
+            --audit-json data/finrlx_data_audit.json \
+            --as-of "$AS_OF"
 
-      - name: Show audit
+      - name: Validate persistent database update
         run: |
-          cat data/FINRLX_DATA_AUDIT.md
           python - <<'PY'
           import json
-          r=json.load(open("data/finrlx_data_audit.json"))
-          m=json.load(open("data/main_db_update_audit.json"))
+          m = json.load(open("data/main_db_update_audit.json"))
+          r = json.load(open("data/finrlx_data_audit.json"))
+
           assert m["after_max_datadate"] > "2026-03-31", m
           assert m["rows_added"] > 0, m
           assert m["rows_after_2026_03_31"] > 0, m
-          assert r["duplicate_ticker_datadate"] == 0
-          assert r["y_return_mismatch_count"] == 0
           assert r["date_max"] > "2026-03-31", r
+          assert r["duplicate_ticker_datadate"] == 0, r
+          assert r["y_return_mismatch_count"] == 0, r
+
+          print("MAIN_DB_UPDATE_AUDIT")
           print(json.dumps(m, indent=2))
+          print("FINAL_DATA_AUDIT")
           print(json.dumps(r, indent=2))
           PY
 
-      - name: Commit refreshed data
+      - name: Commit persistent database and audit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/sp500_historical_constituents.csv data/fundamental_data_full.csv data/finrl_trading.7z
-          git add -f data/sec_companyfacts_latest.csv data/FINRLX_DATA_AUDIT.md data/finrlx_data_audit.json data/main_db_update_audit.json
+
+          git add data/sp500_historical_constituents.csv \
+                  data/fundamental_data_full.csv \
+                  data/finrl_trading.7z
+          git add -f data/sec_companyfacts_latest.csv \
+                     data/FINRLX_DATA_AUDIT.md \
+                     data/finrlx_data_audit.json \
+                     data/main_db_update_audit.json
+
           if git diff --cached --quiet; then
-            echo "No data changes."
+            echo "No persistent data changes."
           else
-            git commit -m "data: persist SEC updates into FinRL-X main database"
+            git commit -m "data: update persistent FinRL-X database through current SEC filings"
             git pull --rebase origin master
             git push origin master
           fi
