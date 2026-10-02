@@ -1,0 +1,123 @@
+name: FinRL-X live stock selection
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/finrlx-live-selection.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  live-selection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      AS_OF: "2026-10-02"
+      PRICE_CUTOFF: "2026-10-01"
+      SEC_USER_AGENT: FinRL-X research https://github.com/gdy1v1/FinRL-X
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install live-selection dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests yfinance pandas-market-calendars py7zr \
+                      scikit-learn openpyxl xgboost lightgbm
+
+      - name: Update current S&P 500 membership
+        run: |
+          python src/data/finrlx_update_sp500.py --target-date "$AS_OF"
+
+      - name: Fetch SEC facts available by as-of date
+        run: |
+          python src/data/finrlx_sec_fundamentals.py \
+            --constituents data/sp500_historical_constituents.csv \
+            --output data/sec_companyfacts_latest.csv \
+            --as-of "$AS_OF"
+
+      - name: Extract historical training database
+        run: |
+          rm -rf data/live_work
+          mkdir -p data/live_work
+          python - <<'PY'
+          import py7zr
+          with py7zr.SevenZipFile("data/finrl_trading.7z", "r") as z:
+              z.extractall("data/live_work")
+          PY
+          DB_PATH="$(find data/live_work -name '*.db' -type f | head -1)"
+          test -n "$DB_PATH"
+          echo "DB_PATH=$DB_PATH" >> "$GITHUB_ENV"
+
+      - name: Build current live inference snapshot
+        run: |
+          python src/data/finrlx_build_live_snapshot.py \
+            --db "$DB_PATH" \
+            --output-db data/live_work/finrl_live.db \
+            --sec data/sec_companyfacts_latest.csv \
+            --constituents data/sp500_historical_constituents.csv \
+            --as-of "$AS_OF" \
+            --price-cutoff "$PRICE_CUTOFF" \
+            --audit data/live_snapshot_audit.json
+
+      - name: Run current S&P 500 model ranking
+        run: |
+          mkdir -p data/live
+          python src/strategies/ml_bucket_selection.py \
+            --db data/live_work/finrl_live.db \
+            --universe sp500 \
+            --val-cutoff 2025-12-31 \
+            --val-quarters 3 \
+            --mixed-vintage \
+            --mixed-alpha \
+            --output-dir data/live
+
+      - name: Build diversified 12-stock candidate portfolio
+        run: |
+          PRED="$(ls -1t data/live/sp500_ml_mixed_alpha_*.csv | head -1)"
+          test -n "$PRED"
+          python src/strategies/finrlx_make_live_portfolio.py \
+            --predictions "$PRED" \
+            --per-bucket 3 \
+            --output data/live/portfolio_${AS_OF}.csv \
+            --summary data/live/portfolio_${AS_OF}.json \
+            --as-of "$AS_OF"
+
+      - name: Validate live output
+        run: |
+          python - <<'PY'
+          import json, pandas as pd
+          audit=json.load(open("data/live_snapshot_audit.json"))
+          assert audit["current_members"] >= 500
+          assert audit["live_rows_created"] >= 475
+          p=pd.read_csv("data/live/portfolio_2026-10-02.csv")
+          assert len(p) == 12
+          assert p["tic"].nunique() == 12
+          assert abs(p["weight"].sum() - 1.0) < 1e-6
+          print(json.dumps(audit, indent=2))
+          print(p.to_string(index=False))
+          PY
+
+      - name: Commit live selection outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/sp500_historical_constituents.csv
+          git add -f data/sec_companyfacts_latest.csv data/live_snapshot_audit.json data/live/
+          if git diff --cached --quiet; then
+            echo "No live-selection changes."
+          else
+            git commit -m "live: generate 2026-10-02 S&P 500 candidate portfolio"
+            git push origin master
+          fi
