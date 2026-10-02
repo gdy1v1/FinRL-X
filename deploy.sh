@@ -266,6 +266,13 @@ fi
 echo ""
 echo "[2/3] Preparing data..."
 
+# Materialize the persistent full daily cache when present. The archive keeps
+# the repository compact while restoring the official data/fmp_daily layout.
+if [[ "$DATA_DIR" == "data/fmp_daily" ]] && [[ ! -d "$DATA_DIR" ]] && [[ -f "data/fmp_daily.tar.gz" ]]; then
+    echo "  Extracting persistent daily OHLCV cache..."
+    tar -xzf data/fmp_daily.tar.gz -C data
+fi
+
 if [[ "$SKIP_DOWNLOAD" == true ]] && [[ -d "$DATA_DIR" ]]; then
     FILE_COUNT=$(ls "$DATA_DIR"/*.csv 2>/dev/null | wc -l | tr -d ' ')
     echo "  Skipping download ($FILE_COUNT files in $DATA_DIR)"
