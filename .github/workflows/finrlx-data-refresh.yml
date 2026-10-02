@@ -1,0 +1,75 @@
+name: FinRL-X data refresh
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/finrlx-data-refresh.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SEC_USER_AGENT: FinRL-X research https://github.com/gdy1v1/FinRL-X
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install data refresh dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests yfinance pandas-market-calendars py7zr
+
+      - name: Extend point-in-time S&P 500 history
+        run: |
+          python src/data/finrlx_update_sp500.py --target-date 2026-09-27
+
+      - name: Fetch SEC Company Facts supplement
+        run: |
+          python src/data/finrlx_sec_fundamentals.py             --constituents data/sp500_historical_constituents.csv             --output data/sec_companyfacts_latest.csv
+
+      - name: Optional FMP historical backfill
+        if: ${{ env.FMP_API_KEY != '' }}
+        run: |
+          python src/data/backfill_historical_sp500.py
+
+      - name: Repair recoverable prices and recompute y_return
+        run: |
+          python src/data/finrlx_repair_and_audit.py --as-of 2026-09-27
+
+      - name: Show audit
+        run: |
+          cat data/FINRLX_DATA_AUDIT.md
+          python - <<'PY'
+          import json
+          r=json.load(open("data/finrlx_data_audit.json"))
+          assert r["duplicate_ticker_datadate"] == 0
+          assert r["y_return_mismatch_count"] == 0
+          print(json.dumps(r, indent=2))
+          PY
+
+      - name: Commit refreshed data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/sp500_historical_constituents.csv                   data/fundamental_data_full.csv                   data/finrl_trading.7z                   data/sec_companyfacts_latest.csv                   data/FINRLX_DATA_AUDIT.md                   data/finrlx_data_audit.json
+          if git diff --cached --quiet; then
+            echo "No data changes."
+          else
+            git commit -m "data: refresh FinRL-X datasets through 2026-09-27"
+            git push origin master
+          fi
