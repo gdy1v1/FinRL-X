@@ -266,11 +266,21 @@ fi
 echo ""
 echo "[2/3] Preparing data..."
 
-# Materialize the persistent full daily cache when present. The archive keeps
+# Materialize the persistent full daily cache when present. The archives keep
 # the repository compact while restoring the official data/fmp_daily layout.
-if [[ "$DATA_DIR" == "data/fmp_daily" ]] && [[ ! -d "$DATA_DIR" ]] && [[ -f "data/fmp_daily.tar.gz" ]]; then
-    echo "  Extracting persistent daily OHLCV cache..."
-    tar -xzf data/fmp_daily.tar.gz -C data
+if [[ "$DATA_DIR" == "data/fmp_daily" ]] && [[ ! -d "$DATA_DIR" ]]; then
+    shopt -s nullglob
+    DAILY_ARCHIVES=(data/fmp_daily_part*.tar.gz)
+    if [[ ${#DAILY_ARCHIVES[@]} -gt 0 ]]; then
+        echo "  Extracting persistent daily OHLCV cache (${#DAILY_ARCHIVES[@]} shards)..."
+        for archive in "${DAILY_ARCHIVES[@]}"; do
+            tar -xzf "$archive" -C data
+        done
+    elif [[ -f "data/fmp_daily.tar.gz" ]]; then
+        echo "  Extracting persistent daily OHLCV cache..."
+        tar -xzf data/fmp_daily.tar.gz -C data
+    fi
+    shopt -u nullglob
 fi
 
 if [[ "$SKIP_DOWNLOAD" == true ]] && [[ -d "$DATA_DIR" ]]; then
