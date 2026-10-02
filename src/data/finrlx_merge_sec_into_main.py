@@ -260,7 +260,11 @@ def main():
         & (sec["latest_filed"] <= as_of)
     ].copy()
 
-    price_map = batch_prices_on_or_after(sec)
+    # Persistent latest-period rows are inference observations, not realized
+    # training labels.  Do not attach a later market price here: that would
+    # mix information times.  The live layer injects the latest executable
+    # market price separately.
+    price_map = {}
 
     with tempfile.TemporaryDirectory(prefix="finrlx_main_update_") as td:
         workdir = Path(td)
@@ -310,9 +314,8 @@ def main():
                 skipped_not_newer += 1
                 continue
 
-            actual_trade_date, trade_price = price_map.get(ticker, (None, None))
-            if trade_price is None:
-                skipped_no_price.append(ticker)
+            actual_trade_date, trade_price = (None, None)
+            skipped_no_price.append(ticker)
 
             row = base.iloc[0].to_dict()
             row["ticker"] = ticker
