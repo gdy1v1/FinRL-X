@@ -1,0 +1,44 @@
+{
+  "as_of": "2026-10-02",
+  "prediction_file": "data/live/sp500_ml_mixed_alpha_20261002_20261002_100035.csv",
+  "portfolio_file": "data/live/portfolio_2026-10-02.csv",
+  "holdings": 12,
+  "per_bucket": 3,
+  "weighting": "equal",
+  "tickers": [
+    "TDG",
+    "CARR",
+    "OTIS",
+    "AES",
+    "MCK",
+    "PCG",
+    "WDAY",
+    "DDOG",
+    "SATS",
+    "DD",
+    "DOW",
+    "LYB"
+  ],
+  "buckets": {
+    "cyclical": [
+      "TDG",
+      "CARR",
+      "OTIS"
+    ],
+    "defensive": [
+      "AES",
+      "MCK",
+      "PCG"
+    ],
+    "growth_tech": [
+      "WDAY",
+      "DDOG",
+      "SATS"
+    ],
+    "real_assets": [
+      "DD",
+      "DOW",
+      "LYB"
+    ]
+  }
+}

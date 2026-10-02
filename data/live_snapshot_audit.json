@@ -1,0 +1,27 @@
+{
+  "as_of": "2026-10-02",
+  "price_cutoff": "2026-10-01",
+  "price_date_used": "2026-10-01",
+  "current_members": 504,
+  "live_rows_created": 493,
+  "rows_with_sec_overlay": 0,
+  "rows_carry_forward_only": 493,
+  "unscored_no_history": [
+    "BE",
+    "FDXF",
+    "FERG",
+    "FLEX",
+    "HONA",
+    "MRVL",
+    "P",
+    "RDDT",
+    "VEEV",
+    "VMRK",
+    "VYLR"
+  ],
+  "missing_reference_price": [
+    "BK",
+    "SATS"
+  ],
+  "feature_update_counts": {}
+}
